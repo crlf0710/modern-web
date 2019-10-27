@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use self::lexer::control_code::{ControlCode, ControlCodeKind};
 use self::lexer::token::{lex_token, BoxedTokenList, Token, TokenList};
-use self::lexer::{LexControlFlow, LexMode};
+use self::lexer::{LexControlFlow, LexControlFlowNewItem, LexMode};
 use std::convert::{TryFrom, TryInto};
 
 #[derive(Debug)]
@@ -37,21 +37,31 @@ impl<'x> WEB<'x> {
                     pos = new_pos;
                     data = rest_data;
                 }
-                LexControlFlow::Finish => {
+                LexControlFlow::Finish(rest_data, new_pos) => {
                     println!(" {mode:?}: {token:?};", mode = mode, token = token);
                     tokens.push(token);
-                    pos += data.len();
-                    data = &data[data.len()..];
+                    pos = new_pos;
+                    data = rest_data;
                     break;
                 }
-                LexControlFlow::StartNewModule(new_mode, rest_data, new_pos) => {
+                LexControlFlow::StartNew(
+                    LexControlFlowNewItem::Module,
+                    new_mode,
+                    rest_data,
+                    new_pos,
+                ) => {
                     println!(">{mode:?}: {token:?}", mode = new_mode, token = token);
                     mode = new_mode;
                     pos = new_pos;
                     data = rest_data;
                     text_in_modules.push(ModuleText::new(token.try_into().unwrap()));
                 }
-                LexControlFlow::StartNewDefinition(new_mode, rest_data, new_pos) => {
+                LexControlFlow::StartNew(
+                    LexControlFlowNewItem::Definition,
+                    new_mode,
+                    rest_data,
+                    new_pos,
+                ) => {
                     println!(">{mode:?}: {token:?}", mode = new_mode, token = token);
                     text_in_modules
                         .last_mut()
@@ -62,7 +72,12 @@ impl<'x> WEB<'x> {
                     pos = new_pos;
                     data = rest_data;
                 }
-                LexControlFlow::StartNewProgramText(new_mode, rest_data, new_pos) => {
+                LexControlFlow::StartNew(
+                    LexControlFlowNewItem::ProgramText,
+                    new_mode,
+                    rest_data,
+                    new_pos,
+                ) => {
                     println!(">{mode:?}: {token:?}", mode = new_mode, token = token);
                     text_in_modules
                         .last_mut()
@@ -72,6 +87,9 @@ impl<'x> WEB<'x> {
                     mode = new_mode;
                     pos = new_pos;
                     data = rest_data;
+                }
+                LexControlFlow::ModuleNameInlineProgAbort(..) => {
+                    unreachable!();
                 }
             }
         }

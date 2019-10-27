@@ -94,7 +94,7 @@ impl<'x> MacroDefinitionSet<'x> {
         let mut set = MacroDefinitionSet::default();
         for (_module_idx, module_text) in web_data.text_in_modules.iter().enumerate() {
             for definition_text in module_text.macro_in_definitions.iter() {
-                unimplemented!();
+                // unimplemented!();
                 //let definition = parse_macro_definition(definition_text)?;
                 //set.insert(definition)?;
             }
