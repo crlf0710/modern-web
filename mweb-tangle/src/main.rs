@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     let input_data = std::fs::read(input_path)
         .with_context(|| format!("failed to read data from {}", input_path.display()))?;
 
-    let web_data = WEB::lex(&input_data)?;
+    let web_data = WEB::parse(&input_data)?;
 
     let stdout = io::stdout();
     let mut stdout_lock = None;

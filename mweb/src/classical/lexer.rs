@@ -548,20 +548,7 @@ pub mod operator {
         GreaterEq,
         LessEq,
         Multiply,
-        //
         Divide,
-        Modulus,
-        In,
-        And,
-        AndThen,
-        Or,
-        OrElse,
-        Not,
-        BitAnd,
-        BitOr,
-        BitNot,
-        BitShl,
-        BitShr,
         Assign,
     }
 }
@@ -679,6 +666,10 @@ pub mod punctuation {
             literal: b"*",
             kind: Punctuation::Op(Operator::Multiply),
         },
+        PunctuationInfo {
+            literal: b"/",
+            kind: Punctuation::Op(Operator::Divide),
+        },
     ];
 }
 
@@ -785,7 +776,7 @@ pub mod program_text {
 }
 
 pub mod token {
-    use super::ascii_char::{is_hex_digit, is_octal_digit, is_inline_whitespace_char};
+    use super::ascii_char::{is_hex_digit, is_inline_whitespace_char, is_octal_digit};
     use super::ascii_str::{self, AsciiStr};
     use super::control_code::ControlCode;
     use super::literal::Literal;
@@ -871,7 +862,10 @@ pub mod token {
         if let Ok(v) = u32::from_str_radix(str, radix as u32) {
             Ok(Literal::IntegerU32(v))
         } else {
-            Err(LexError::IntegerLiteralOverflow(str.to_owned(), radix as u32))
+            Err(LexError::IntegerLiteralOverflow(
+                str.to_owned(),
+                radix as u32,
+            ))
         }
     }
 
@@ -920,13 +914,17 @@ pub mod token {
                 (control_code, rest, pos + 1)
             }
             SpecialHandling::GroupTitle => {
-                let group_title_start = rest.iter().take_while(|&&ch| is_inline_whitespace_char(ch)).count();
+                let group_title_start = rest
+                    .iter()
+                    .take_while(|&&ch| is_inline_whitespace_char(ch))
+                    .count();
                 let group_title_end = memchr::memchr2(b'.', b'\n', rest).unwrap_or(rest.len());
                 if !rest[group_title_end..].starts_with(b".") {
                     return Err(LexError::GroupTitleNotProperlyFinished);
                 }
                 let control_text_end = group_title_end + 1;
-                let group_title_text = ascii_str::from_bytes(&rest[group_title_start..group_title_end])?;
+                let group_title_text =
+                    ascii_str::from_bytes(&rest[group_title_start..group_title_end])?;
                 let control_code = ControlCode {
                     kind: control_code_info.kind,
                     param: Some(Box::new(vec![Token::TextFragment(group_title_text)])),
@@ -1322,5 +1320,240 @@ pub mod token {
             }
             _ => unimplemented!(),
         }
+    }
+}
+
+pub struct LexerRawBuf<'x> {
+    mode: LexMode,
+    data: &'x [u8],
+    pos: usize,
+}
+
+#[derive(Default)]
+pub struct LexerLimboBuf<'x> {
+    pub(crate) limbo_tokens: token::TokenList<'x>,
+}
+
+pub struct LexerModuleBuf<'x> {
+    pub(crate) module_type: token::Token<'x>,
+    pub(crate) text_in_tex: token::TokenList<'x>,
+    pub(crate) macro_in_definitions: token::TokenList<'x>,
+    pub(crate) code_in_pascal: token::TokenList<'x>,
+}
+
+#[derive(Clone, Copy)]
+enum LexerInternalState {
+    LimboDirty,
+    LimboFilledModuleDirty,
+    LimboFilledEOF,
+    LimboTakenModuleDirty,
+    ModuleFilledNextModuleDirty,
+    ModuleFilledEOF,
+    EOF,
+}
+
+pub struct WEBLexer<'x> {
+    raw_buf: LexerRawBuf<'x>,
+    state: LexerInternalState,
+    limbo_buf: Option<LexerLimboBuf<'x>>,
+    module_buf: Option<LexerModuleBuf<'x>>,
+    next_module_buf: Option<LexerModuleBuf<'x>>,
+}
+
+impl<'x> WEBLexer<'x> {
+    pub fn new(data: &'x [u8]) -> Self {
+        let raw_buf = LexerRawBuf {
+            mode: LexMode::Limbo,
+            data,
+            pos: 0,
+        };
+        let limbo_buf = Some(Default::default());
+        let state = LexerInternalState::LimboDirty;
+        let module_buf = None;
+        let next_module_buf = None;
+        WEBLexer {
+            raw_buf,
+            state,
+            limbo_buf,
+            module_buf,
+            next_module_buf,
+        }
+    }
+
+    fn refill(&mut self) -> Result<(), LexError> {
+        let mut output_module;
+        match self.state {
+            LexerInternalState::LimboDirty => {
+                output_module = None;
+            }
+            LexerInternalState::LimboTakenModuleDirty
+            | LexerInternalState::LimboFilledModuleDirty => {
+                output_module = Some(self.module_buf.as_mut().unwrap());
+            }
+            LexerInternalState::ModuleFilledNextModuleDirty => {
+                output_module = Some(self.next_module_buf.as_mut().unwrap());
+            }
+            LexerInternalState::LimboFilledEOF
+            | LexerInternalState::ModuleFilledEOF
+            | LexerInternalState::EOF => {
+                return Ok(());
+            }
+        }
+        let mut pending_token = None;
+        'outer: loop {
+            let output_tokenlist;
+            if let Some(module) = &mut output_module {
+                output_tokenlist = match self.raw_buf.mode {
+                    LexMode::TeXText => &mut module.text_in_tex,
+                    LexMode::DefinitionText => &mut module.macro_in_definitions,
+                    LexMode::PascalText => &mut module.code_in_pascal,
+                    _ => unreachable!(),
+                };
+            } else {
+                assert!(self.raw_buf.mode == LexMode::Limbo);
+                output_tokenlist = &mut self.limbo_buf.as_mut().unwrap().limbo_tokens;
+            }
+
+            if let Some(token) = pending_token.take() {
+                output_tokenlist.push(token);
+            }
+
+            'inner: loop {
+                let (token, control_flow) =
+                    token::lex_token(self.raw_buf.data, self.raw_buf.mode, self.raw_buf.pos)?;
+                match control_flow {
+                    LexControlFlow::Continue(rest_data, new_pos) => {
+                        output_tokenlist.push(token);
+                        self.raw_buf.pos = new_pos;
+                        self.raw_buf.data = rest_data;
+                        continue 'inner;
+                    }
+                    LexControlFlow::Finish(rest_data, new_pos) => {
+                        output_tokenlist.push(token);
+                        self.raw_buf.pos = new_pos;
+                        self.raw_buf.data = rest_data;
+                        self.state = match self.state {
+                            LexerInternalState::LimboDirty => LexerInternalState::LimboFilledEOF,
+                            LexerInternalState::LimboTakenModuleDirty => {
+                                LexerInternalState::ModuleFilledEOF
+                            }
+                            LexerInternalState::LimboFilledModuleDirty
+                            | LexerInternalState::ModuleFilledNextModuleDirty
+                            | LexerInternalState::LimboFilledEOF
+                            | LexerInternalState::ModuleFilledEOF
+                            | LexerInternalState::EOF => unreachable!(),
+                        };
+                        break 'outer;
+                    }
+                    LexControlFlow::StartNew(
+                        LexControlFlowNewItem::Module,
+                        new_mode,
+                        rest_data,
+                        new_pos,
+                    ) => {
+                        self.raw_buf.mode = new_mode;
+                        self.raw_buf.pos = new_pos;
+                        self.raw_buf.data = rest_data;
+                        let new_module = LexerModuleBuf {
+                            module_type: token,
+                            text_in_tex: Default::default(),
+                            macro_in_definitions: Default::default(),
+                            code_in_pascal: Default::default(),
+                        };
+                        self.state = match self.state {
+                            LexerInternalState::LimboDirty => {
+                                assert!(self.module_buf.is_none());
+                                self.module_buf = Some(new_module);
+                                LexerInternalState::LimboFilledModuleDirty
+                            }
+                            LexerInternalState::LimboTakenModuleDirty => {
+                                assert!(self.next_module_buf.is_none());
+                                self.next_module_buf = Some(new_module);
+                                LexerInternalState::ModuleFilledNextModuleDirty
+                            }
+                            LexerInternalState::LimboFilledModuleDirty
+                            | LexerInternalState::ModuleFilledNextModuleDirty
+                            | LexerInternalState::LimboFilledEOF
+                            | LexerInternalState::ModuleFilledEOF
+                            | LexerInternalState::EOF => unreachable!(),
+                        };
+                        break 'outer;
+                    }
+                    LexControlFlow::StartNew(
+                        LexControlFlowNewItem::Definition,
+                        new_mode,
+                        rest_data,
+                        new_pos,
+                    )
+                    | LexControlFlow::StartNew(
+                        LexControlFlowNewItem::ProgramText,
+                        new_mode,
+                        rest_data,
+                        new_pos,
+                    ) => {
+                        assert!(pending_token.is_none());
+                        pending_token = Some(token);
+                        self.raw_buf.mode = new_mode;
+                        self.raw_buf.pos = new_pos;
+                        self.raw_buf.data = rest_data;
+                        continue 'outer;
+                    }
+                    LexControlFlow::ModuleNameInlineProgAbort(..) => {
+                        unreachable!();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn lex_limbo(&mut self) -> Result<Option<LexerLimboBuf<'x>>, LexError> {
+        self.refill()?;
+        let result;
+        self.state = match self.state {
+            LexerInternalState::LimboDirty | LexerInternalState::LimboTakenModuleDirty => unreachable!(),
+            LexerInternalState::LimboFilledModuleDirty => {
+                result = self.limbo_buf.take();
+                LexerInternalState::LimboTakenModuleDirty
+            }
+            LexerInternalState::LimboFilledEOF => {
+                result = self.limbo_buf.take();
+                LexerInternalState::EOF
+            }
+            LexerInternalState::ModuleFilledNextModuleDirty
+            | LexerInternalState::ModuleFilledEOF
+            | LexerInternalState::EOF => {
+                result = None;
+                self.state
+            }
+        };
+        Ok(result)
+    }
+
+    pub fn lex_module(&mut self) -> Result<Option<LexerModuleBuf<'x>>, LexError> {
+        self.refill()?;
+        let result;
+        self.state = match self.state {
+            LexerInternalState::LimboDirty | LexerInternalState::LimboTakenModuleDirty => unreachable!(),
+            LexerInternalState::LimboFilledModuleDirty | LexerInternalState::LimboFilledEOF => {
+                // must be called in the wrong order.
+                unreachable!();
+            }
+            LexerInternalState::ModuleFilledNextModuleDirty => {
+                use std::mem::swap;
+                result = self.module_buf.take();
+                swap(&mut self.module_buf, &mut self.next_module_buf);
+                LexerInternalState::LimboTakenModuleDirty
+            }
+            LexerInternalState::ModuleFilledEOF => {
+                result = self.module_buf.take();
+                LexerInternalState::EOF
+            }
+            LexerInternalState::EOF => {
+                result = None;
+                self.state
+            }
+        };
+        Ok(result)
     }
 }
