@@ -323,7 +323,7 @@ pub mod control_code {
             selector: b"<",
             kind: ControlCodeKind::ModuleName,
             special_handling: SpecialHandling::ModuleName,
-            terminating_modes: LexModeSet::TeXText,
+            terminating_modes: LexModeSet::TeXText.const_or(LexModeSet::DefinitionText),
             appliable_modes: LexModeSet::PascalText
                 .const_or(LexModeSet::DefinitionText)
                 .const_or(LexModeSet::TeXText),
@@ -1337,7 +1337,7 @@ pub struct LexerLimboBuf<'x> {
 pub struct LexerModuleBuf<'x> {
     pub(crate) module_type: token::Token<'x>,
     pub(crate) text_in_tex: token::TokenList<'x>,
-    pub(crate) macro_in_definitions: token::TokenList<'x>,
+    pub(crate) definitions: token::TokenList<'x>,
     pub(crate) code_in_pascal: token::TokenList<'x>,
 }
 
@@ -1405,7 +1405,7 @@ impl<'x> WEBLexer<'x> {
             if let Some(module) = &mut output_module {
                 output_tokenlist = match self.raw_buf.mode {
                     LexMode::TeXText => &mut module.text_in_tex,
-                    LexMode::DefinitionText => &mut module.macro_in_definitions,
+                    LexMode::DefinitionText => &mut module.definitions,
                     LexMode::PascalText => &mut module.code_in_pascal,
                     _ => unreachable!(),
                 };
@@ -1457,7 +1457,7 @@ impl<'x> WEBLexer<'x> {
                         let new_module = LexerModuleBuf {
                             module_type: token,
                             text_in_tex: Default::default(),
-                            macro_in_definitions: Default::default(),
+                            definitions: Default::default(),
                             code_in_pascal: Default::default(),
                         };
                         self.state = match self.state {

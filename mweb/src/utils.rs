@@ -1,8 +1,16 @@
 pub trait IteratorAdvanceIf<I: Iterator> {
     fn advance_if(&mut self, f: impl FnOnce(&I::Item) -> bool) -> Option<I::Item>;
+
     fn advance_if_iter<F: FnMut(&I::Item) -> bool>(&mut self, f: F) -> IterAdvanceIf<'_, I, F>
     where
         Self: Sized;
+
+    fn advance_if_eq(&mut self, v: I::Item) -> Option<I::Item>
+    where
+        I::Item: PartialEq,
+    {
+        self.advance_if(|p| *p == v)
+    }
 }
 
 impl<I: Iterator> IteratorAdvanceIf<I> for std::iter::Peekable<I> {
