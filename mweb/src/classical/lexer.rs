@@ -195,6 +195,7 @@ pub mod control_code {
         OctalConst,
         HexConst,
         ControlTextUpToAtGT,
+        WarnAndIgnore,  // occurred in xetex.web:9057
     }
 
     #[derive(Copy, Clone, PartialEq, Debug)]
@@ -227,6 +228,7 @@ pub mod control_code {
         FormatNoLineBreak,
         FormatInvisibleSemicolon,
         HiddenEndOfModuleName,
+        Ignored,
     }
 
     #[derive(Debug, PartialEq)]
@@ -515,6 +517,13 @@ pub mod control_code {
                 .const_or(LexModeSet::DefinitionText)
                 .const_or(LexModeSet::InlinePascalText),
         },
+        ControlCodeInfoRecord {
+            selector: b"z",
+            kind: ControlCodeKind::Ignored,
+            special_handling: SpecialHandling::WarnAndIgnore,
+            terminating_modes: LexModeSet::Nothing,
+            appliable_modes: LexModeSet::PascalText,
+        },
     ];
     pub fn get_control_code_info_record_for_selector(
         selector: u8,
@@ -680,6 +689,7 @@ pub mod literal {
     #[derive(Debug, PartialEq)]
     pub enum Literal<'x> {
         IntegerU32(u32),
+        RealF64(f64),
         StringLiteral(&'x AsciiStr),
         PreprocessedStringLiteral(BoxedTokenList<'x>),
     }
@@ -699,6 +709,10 @@ pub enum LexError {
     ControlCodeInNonApplicableMode,
     #[error("Integer literal overflow: {0} with radix {1}")]
     IntegerLiteralOverflow(String, u32),
+    #[error("Float literal lex error: {0}")]
+    FloatLiteralLexError(String),
+    #[error("Numeric literal not properly finished")]
+    NumericLiteralNotProperlyFinished,
     #[error("Control text not properly finished with @>")]
     ControlTextNotProperlyFinished,
     #[error("Group title not properly finished with .")]
@@ -854,6 +868,9 @@ pub mod token {
     pub const SIMPLE_ESCAPED_ATAIL: &'static [u8] = b"@@";
     pub const END_OF_CONTROL_TEXT: &'static [u8] = b"@>";
 
+    pub const START_OF_MACRO_DEFINITION: &'static [u8] = b"@d";
+    pub const START_OF_FORMAT_DEFINITION: &'static [u8] = b"@f";
+
     pub const MODULE_NAME_INLINE_PROGFRAG_ABORT: &'static [u8] = b"...@>";
 
     pub fn lex_u32_literal_with_radix(l: &[u8], radix: usize) -> Result<Literal, LexError> {
@@ -869,16 +886,42 @@ pub mod token {
         }
     }
 
+    pub fn lex_f64_literal(l: &[u8]) -> Result<Literal, LexError> {
+        use std::str::{from_utf8, FromStr};
+        let str = from_utf8(l).unwrap();
+        if let Ok(v) = f64::from_str(str) {
+            Ok(Literal::RealF64(v))
+        } else {
+            Err(LexError::FloatLiteralLexError(
+                str.to_owned()
+            ))
+        }
+    }
+
     pub fn lex_numeric_literal(l: &[u8]) -> Result<(Literal, usize, &[u8]), LexError> {
         use super::ascii_char::is_numeric_char;
-        let count = l
+        let count_int = l
             .iter()
             .copied()
             .take_while(|&ch| is_numeric_char(ch))
             .count();
-        let (numeric, rest) = l.split_at(count);
-        let literal = lex_u32_literal_with_radix(numeric, 10)?;
-        Ok((literal, numeric.len(), rest))
+        let has_dot = count_int > 0 && l[count_int..].starts_with(b".");
+        let count_fraction = if has_dot {
+            l[count_int + 1..].iter().copied().take_while(|&ch| is_numeric_char(ch)).count()
+        } else {
+            0
+        };
+        if has_dot && count_fraction > 0 {
+            let (numeric, rest) = l.split_at(count_int + 1 + count_fraction);
+            let literal = lex_f64_literal(numeric)?;
+            Ok((literal, numeric.len(), rest))
+        } else if count_int > 0 {
+            let (numeric, rest) = l.split_at(count_int);
+            let literal = lex_u32_literal_with_radix(numeric, 10)?;
+            Ok((literal, numeric.len(), rest))
+        } else {
+            Err(LexError::NumericLiteralNotProperlyFinished)
+        }
     }
 
     fn lex_control_code_rest<'x>(
@@ -919,10 +962,15 @@ pub mod token {
                     .take_while(|&&ch| is_inline_whitespace_char(ch))
                     .count();
                 let group_title_end = memchr::memchr2(b'.', b'\n', rest).unwrap_or(rest.len());
+
+                let control_text_end;
                 if !rest[group_title_end..].starts_with(b".") {
-                    return Err(LexError::GroupTitleNotProperlyFinished);
+                    eprintln!("WARN: module group title not finished with dot character, continuing.");
+                    control_text_end = group_title_end;
+                    //return Err(LexError::GroupTitleNotProperlyFinished);
+                } else {
+                    control_text_end = group_title_end + 1;
                 }
-                let control_text_end = group_title_end + 1;
                 let group_title_text =
                     ascii_str::from_bytes(&rest[group_title_start..group_title_end])?;
                 let control_code = ControlCode {
@@ -982,6 +1030,11 @@ pub mod token {
                 let mut pos = pos + 1;
                 let mut tokens = vec![];
                 'definition_loop: loop {
+                    if data.starts_with(START_OF_MACRO_DEFINITION)
+                        || data.starts_with(START_OF_FORMAT_DEFINITION)
+                    {
+                        break 'definition_loop;
+                    }
                     let (token, control_flow) = lex_token(data, mode, pos)?;
                     match control_flow {
                         LexControlFlow::Continue(rest_data, new_pos) => {
@@ -1062,6 +1115,19 @@ pub mod token {
                     control_code,
                     &rest[control_text_len + END_OF_CONTROL_TEXT.len()..],
                     pos + 1 + control_text_len + END_OF_CONTROL_TEXT.len(),
+                )
+            }
+            SpecialHandling::WarnAndIgnore => {
+                use super::control_code::ControlCodeKind;
+                eprintln!("WARN: %{} occurred in the web file, ignoring.", selector as char);
+                let control_code = ControlCode {
+                    kind: ControlCodeKind::Ignored,
+                    param: None,
+                };
+                (
+                    control_code,
+                    rest,
+                    pos + 1,
                 )
             }
         };
