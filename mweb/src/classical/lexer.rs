@@ -22,6 +22,7 @@ pub mod ascii_char {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_invalid_char(ch: u8) -> bool {
         ascii_char_category(ch) == AsciiCharCategory::Invalid
     }
@@ -37,6 +38,7 @@ pub mod ascii_char {
             || category == AsciiCharCategory::LineFeedWhitespace
     }
 
+    #[allow(dead_code)]
     pub fn is_alphanumeric_char(ch: u8) -> bool {
         let category = ascii_char_category(ch);
         category == AsciiCharCategory::Alphabetic || category == AsciiCharCategory::Digit
@@ -195,7 +197,7 @@ pub mod control_code {
         OctalConst,
         HexConst,
         ControlTextUpToAtGT,
-        WarnAndIgnore,  // occurred in xetex.web:9057
+        WarnAndIgnore, // occurred in xetex.web:9057
     }
 
     #[derive(Copy, Clone, PartialEq, Debug)]
@@ -348,7 +350,8 @@ pub mod control_code {
             appliable_modes: LexModeSet::PascalText
                 .const_or(LexModeSet::DefinitionText)
                 .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText),
+                .const_or(LexModeSet::InlinePascalText)
+                .const_or(LexModeSet::Comment /*xetex.web:8641*/),
         },
         ControlCodeInfoRecord {
             selector: b"$",
@@ -579,6 +582,7 @@ pub mod punctuation {
         EndOfLastStatement,
         DefineAs,
         Dollar,
+        Backslash/*xetex.web:24446*/,
     }
 
     pub struct PunctuationInfo {
@@ -679,6 +683,10 @@ pub mod punctuation {
             literal: b"/",
             kind: Punctuation::Op(Operator::Divide),
         },
+        PunctuationInfo {
+            literal: b"\\",
+            kind: Punctuation::Backslash,
+        },
     ];
 }
 
@@ -707,6 +715,8 @@ pub enum LexError {
     UnrecognizedPunctuation(char),
     #[error("Control code used where it's not usable")]
     ControlCodeInNonApplicableMode,
+    #[error("Control code character '{0}' used where it's not usable")]
+    ControlCodeCharInNonApplicableMode(char),
     #[error("Integer literal overflow: {0} with radix {1}")]
     IntegerLiteralOverflow(String, u32),
     #[error("Float literal lex error: {0}")]
@@ -721,6 +731,8 @@ pub enum LexError {
     InlineProgFragmentNotProperlyFinished,
     #[error("Comment not properly finished with }}")]
     CommentNotProperlyFinished,
+    #[error("Comment nesting too deep")]
+    CommentNestingTooDeep,
     #[error("String literal not properly finished with \'")]
     StringLiteralNotProperlyFinished,
     #[error("String literal not properly finished with \"")]
@@ -810,8 +822,6 @@ pub mod token {
         InlineProgramFragment(BoxedTokenList<'x>),
         TextFragment(&'x AsciiStr),
 
-        Text(BoxedTokenList<'x>),
-
         ModuleNameInlineProgAbort,
     }
 
@@ -892,9 +902,7 @@ pub mod token {
         if let Ok(v) = f64::from_str(str) {
             Ok(Literal::RealF64(v))
         } else {
-            Err(LexError::FloatLiteralLexError(
-                str.to_owned()
-            ))
+            Err(LexError::FloatLiteralLexError(str.to_owned()))
         }
     }
 
@@ -907,7 +915,11 @@ pub mod token {
             .count();
         let has_dot = count_int > 0 && l[count_int..].starts_with(b".");
         let count_fraction = if has_dot {
-            l[count_int + 1..].iter().copied().take_while(|&ch| is_numeric_char(ch)).count()
+            l[count_int + 1..]
+                .iter()
+                .copied()
+                .take_while(|&ch| is_numeric_char(ch))
+                .count()
         } else {
             0
         };
@@ -942,7 +954,9 @@ pub mod token {
             })?;
 
         if !control_code_info.appliable_modes.contains_mode(mode) {
-            return Err(LexError::ControlCodeInNonApplicableMode);
+            return Err(LexError::ControlCodeCharInNonApplicableMode(
+                selector as char,
+            ));
         }
 
         let is_terminator = control_code_info.terminating_modes.contains_mode(mode);
@@ -965,9 +979,11 @@ pub mod token {
 
                 let control_text_end;
                 if !rest[group_title_end..].starts_with(b".") {
-                    eprintln!("WARN: module group title not finished with dot character, continuing.");
+                    eprintln!(
+                        "WARN: module group title not finished with dot character, continuing."
+                    );
                     control_text_end = group_title_end;
-                    //return Err(LexError::GroupTitleNotProperlyFinished);
+                //return Err(LexError::GroupTitleNotProperlyFinished);
                 } else {
                     control_text_end = group_title_end + 1;
                 }
@@ -1119,16 +1135,15 @@ pub mod token {
             }
             SpecialHandling::WarnAndIgnore => {
                 use super::control_code::ControlCodeKind;
-                eprintln!("WARN: %{} occurred in the web file, ignoring.", selector as char);
+                eprintln!(
+                    "WARN: %{} occurred in the web file, ignoring.",
+                    selector as char
+                );
                 let control_code = ControlCode {
                     kind: ControlCodeKind::Ignored,
                     param: None,
                 };
-                (
-                    control_code,
-                    rest,
-                    pos + 1,
-                )
+                (control_code, rest, pos + 1)
             }
         };
         Ok((control_code, rest, pos, is_terminator))
@@ -1138,37 +1153,63 @@ pub mod token {
         l: &'x [u8],
         pos: usize,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
-        let mut escaped = false;
+        let mode = LexMode::Comment;
+        let mut data = l;
+        let mut pos = pos;
+        let mut tokens = vec![];
+
         let mut level = 1usize;
-        let mut ch_count = 0;
-        'comment_char_loop: for (idx, &ch) in l.iter().enumerate() {
-            ch_count = idx + 1;
-            if escaped {
-                escaped = false;
-            } else if ch == b'\\' {
-                escaped = true;
-            } else if ch == b'{' {
-                level = level.checked_add(1).expect("comment nesting too deep");
-            } else if ch == b'}' {
+        'comment_loop: loop {
+            if data.starts_with(b"\\") {
+                if data.len() >= 2 {
+                    let escaped_fragment = Token::TextFragment(ascii_str::from_bytes(&l[..2])?);
+                    tokens.push(escaped_fragment);
+                    data = &data[2..];
+                    pos += 2;
+                } else {
+                    return Err(LexError::CommentNotProperlyFinished);
+                }
+            } else if data.starts_with(b"{") {
+                let fragment = Token::TextFragment(ascii_str::from_bytes(&l[..1])?);
+                tokens.push(fragment);
+                level = level
+                    .checked_add(1)
+                    .ok_or(LexError::CommentNestingTooDeep)?;
+                data = &data[1..];
+                pos += 1;
+            } else if data.starts_with(b"}") {
                 level -= 1;
+                if level != 0 {
+                    let fragment = Token::TextFragment(ascii_str::from_bytes(&l[..1])?);
+                    tokens.push(fragment);
+                }
+                data = &data[1..];
+                pos += 1;
                 if level == 0 {
-                    ch_count -= 1;
-                    break 'comment_char_loop;
+                    break 'comment_loop;
+                }
+            } else {
+                let (token, control_flow) = lex_token(data, mode, pos)?;
+                match control_flow {
+                    LexControlFlow::Continue(rest_data, new_pos) => {
+                        pos = new_pos;
+                        data = rest_data;
+                        tokens.push(token);
+                    }
+                    LexControlFlow::Finish(..) => {
+                        return Err(LexError::UnexpectedEOF);
+                    }
+                    LexControlFlow::StartNew(..) => {
+                        return Err(LexError::ControlCodeInNonApplicableMode);
+                    }
+                    LexControlFlow::ModuleNameInlineProgAbort(..) => {
+                        return Err(LexError::ControlCodeInNonApplicableMode);
+                    }
                 }
             }
         }
-        let text_end = ch_count;
-        if !l[text_end..].starts_with(b"}") {
-            return Err(LexError::CommentNotProperlyFinished);
-        }
-        let comment_end = text_end + 1;
-        let mut tokens = vec![];
-        tokens.push(Token::TextFragment(ascii_str::from_bytes(&l[..text_end])?));
         let token = Token::Comment(Box::new(tokens));
-        Ok((
-            token,
-            continue_or_finish(&l[comment_end..], pos + comment_end),
-        ))
+        Ok((token, continue_or_finish(data, pos)))
     }
 
     fn lex_string_literal_rest<'x>(
@@ -1273,6 +1314,7 @@ pub mod token {
             | LexMode::PascalText
             | LexMode::InlinePascalText
             | LexMode::DefinitionText
+            | LexMode::Comment
                 if first_ch == CONTROL_CODE_PREFIX =>
             {
                 let rest = &l[1..];
@@ -1309,21 +1351,32 @@ pub mod token {
                     return Err(LexError::ControlCodeInNonApplicableMode);
                 }
             }
-            LexMode::Limbo | LexMode::TeXText | LexMode::ModuleName
+            LexMode::Limbo | LexMode::TeXText | LexMode::ModuleName | LexMode::Comment
                 if first_ch == INLINE_PROGRAM_FRAGMENT =>
             {
                 let rest = &l[1..];
                 return lex_inline_prog_rest(rest, mode, pos + 1);
             }
-            LexMode::Limbo | LexMode::TeXText | LexMode::ModuleName => {
-                use memchr::{memchr, memchr2};
-                debug_assert!(
-                    first_ch != CONTROL_CODE_PREFIX && first_ch != INLINE_PROGRAM_FRAGMENT
-                );
+            LexMode::Limbo | LexMode::TeXText | LexMode::ModuleName | LexMode::Comment => {
+                use memchr::{memchr, memchr2, memchr3};
+                debug_assert_ne!(first_ch, CONTROL_CODE_PREFIX);
+                debug_assert_ne!(first_ch, INLINE_PROGRAM_FRAGMENT);
                 let text_len = if mode == LexMode::Limbo {
                     memchr(CONTROL_CODE_PREFIX, l)
-                } else {
+                } else if mode != LexMode::Comment {
                     memchr2(CONTROL_CODE_PREFIX, INLINE_PROGRAM_FRAGMENT, l)
+                } else {
+                    let count = l
+                        .iter()
+                        .take_while(|&&ch| {
+                            ch != CONTROL_CODE_PREFIX
+                                && ch != INLINE_PROGRAM_FRAGMENT
+                                && ch != ESCAPE_CHARACTER
+                                && ch != START_OF_COMMENT
+                                && ch != END_OF_COMMENT
+                        })
+                        .count();
+                    Some(count)
                 }
                 .unwrap_or_else(|| l.len());
                 let (text, rest) = l.split_at(text_len);
