@@ -1,5 +1,4 @@
 use super::WEB;
-use std::collections::BTreeMap;
 use std::io;
 use thiserror::Error;
 
@@ -8,8 +7,6 @@ pub enum WEBParseError {
     #[error("parse error")]
     AnyWEBParseError,
 }
-
-use WEBParseError::AnyWEBParseError;
 
 trait OkOrParseError<T> {
     fn ok_or_parse_error(self) -> Result<T, WEBParseError>;

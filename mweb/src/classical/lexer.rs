@@ -125,28 +125,17 @@ pub mod ascii_str {
 
 use bitflags::bitflags;
 
-#[allow(non_upper_case_globals)]
 bitflags! {
-    #[allow(non_upper_case_globals)]
     pub struct LexModeSet : u8 {
-        #[allow(non_upper_case_globals)]
-        const Nothing = 0;
-        #[allow(non_upper_case_globals)]
-        const Comment = 0x1;
-        #[allow(non_upper_case_globals)]
-        const Limbo = 0x2;
-        #[allow(non_upper_case_globals)]
-        const ModuleName = 0x4;
-        #[allow(non_upper_case_globals)]
-        const StrLiteral = 0x8;
-        #[allow(non_upper_case_globals)]
-        const PascalText = 0x10;
-        #[allow(non_upper_case_globals)]
-        const TeXText = 0x20;
-        #[allow(non_upper_case_globals)]
-        const DefinitionText = 0x40;
-        #[allow(non_upper_case_globals)]
-        const InlinePascalText = 0x80;
+        const NOTHING = 0;
+        const COMMENT = 0x1;
+        const LIMBO = 0x2;
+        const MODULE_NAME = 0x4;
+        const STRING_LITERAL = 0x8;
+        const PASCAL_TEXT = 0x10;
+        const TEX_TEXT = 0x20;
+        const DEFINITION_TEXT = 0x40;
+        const INLINE_PASCAL_TEXT = 0x80;
     }
 }
 
@@ -168,14 +157,14 @@ use std::fmt;
 impl fmt::Debug for LexMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mode_text = match *self {
-            LexMode::Limbo => "Limbo",
-            LexMode::TeXText => "TeXText",
-            LexMode::ModuleName => "ModuleName",
-            LexMode::PascalText => "PascalText",
-            LexMode::Comment => "Comment",
-            LexMode::StrLiteral => "StrLiteral",
-            LexMode::DefinitionText => "DefinitionText",
-            LexMode::InlinePascalText => "InlinePascalText",
+            LexMode::LIMBO => "Limbo",
+            LexMode::TEX_TEXT => "TeXText",
+            LexMode::MODULE_NAME => "ModuleName",
+            LexMode::PASCAL_TEXT => "PascalText",
+            LexMode::COMMENT => "Comment",
+            LexMode::STRING_LITERAL => "StrLiteral",
+            LexMode::DEFINITION_TEXT => "DefinitionText",
+            LexMode::INLINE_PASCAL_TEXT => "InlinePascalText",
             _ => unreachable!(),
         };
         write!(f, "{}", mode_text).map_err(|_| fmt::Error)?;
@@ -183,16 +172,15 @@ impl fmt::Debug for LexMode {
     }
 }
 
-#[allow(non_upper_case_globals)]
 impl LexMode {
-    pub const Limbo: LexMode = LexMode(LexModeSet::Limbo.bits);
-    pub const TeXText: LexMode = LexMode(LexModeSet::TeXText.bits);
-    pub const ModuleName: LexMode = LexMode(LexModeSet::ModuleName.bits);
-    pub const PascalText: LexMode = LexMode(LexModeSet::PascalText.bits);
-    pub const Comment: LexMode = LexMode(LexModeSet::Comment.bits);
-    pub const StrLiteral: LexMode = LexMode(LexModeSet::StrLiteral.bits);
-    pub const DefinitionText: LexMode = LexMode(LexModeSet::DefinitionText.bits);
-    pub const InlinePascalText: LexMode = LexMode(LexModeSet::InlinePascalText.bits);
+    pub const LIMBO: LexMode = LexMode(LexModeSet::LIMBO.bits);
+    pub const TEX_TEXT: LexMode = LexMode(LexModeSet::TEX_TEXT.bits);
+    pub const MODULE_NAME: LexMode = LexMode(LexModeSet::MODULE_NAME.bits);
+    pub const PASCAL_TEXT: LexMode = LexMode(LexModeSet::PASCAL_TEXT.bits);
+    pub const COMMENT: LexMode = LexMode(LexModeSet::COMMENT.bits);
+    pub const STRING_LITERAL: LexMode = LexMode(LexModeSet::STRING_LITERAL.bits);
+    pub const DEFINITION_TEXT: LexMode = LexMode(LexModeSet::DEFINITION_TEXT.bits);
+    pub const INLINE_PASCAL_TEXT: LexMode = LexMode(LexModeSet::INLINE_PASCAL_TEXT.bits);
 }
 
 pub mod control_code {
@@ -264,280 +252,280 @@ pub mod control_code {
             selector: b"@",
             kind: ControlCodeKind::EscapedAt,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::Comment
-                .const_or(LexModeSet::Limbo)
-                .const_or(LexModeSet::ModuleName)
-                .const_or(LexModeSet::PascalText)
-                .const_or(LexModeSet::StrLiteral)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::COMMENT
+                .const_or(LexModeSet::LIMBO)
+                .const_or(LexModeSet::MODULE_NAME)
+                .const_or(LexModeSet::PASCAL_TEXT)
+                .const_or(LexModeSet::STRING_LITERAL)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b" \t\r\n",
             kind: ControlCodeKind::DefineModule,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Limbo
-                .const_or(LexModeSet::PascalText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
-            appliable_modes: LexModeSet::Limbo
-                .const_or(LexModeSet::PascalText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::LIMBO
+                .const_or(LexModeSet::PASCAL_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
+            appliable_modes: LexModeSet::LIMBO
+                .const_or(LexModeSet::PASCAL_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"*",
             kind: ControlCodeKind::DefineStarredModule,
             special_handling: SpecialHandling::GroupTitle,
-            terminating_modes: LexModeSet::Limbo
-                .const_or(LexModeSet::PascalText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
-            appliable_modes: LexModeSet::Limbo
-                .const_or(LexModeSet::PascalText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
+            terminating_modes: LexModeSet::LIMBO
+                .const_or(LexModeSet::PASCAL_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
+            appliable_modes: LexModeSet::LIMBO
+                .const_or(LexModeSet::PASCAL_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"dD",
             kind: ControlCodeKind::DefineMacro,
             special_handling: SpecialHandling::MacroDefinition,
-            terminating_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
+            terminating_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"fF",
             kind: ControlCodeKind::DefineFormat,
             special_handling: SpecialHandling::FormatDefinition,
-            terminating_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
+            terminating_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"pP",
             kind: ControlCodeKind::DefineProgram,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::DefinitionText),
+            terminating_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::DEFINITION_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"<",
             kind: ControlCodeKind::ModuleName,
             special_handling: SpecialHandling::ModuleName,
-            terminating_modes: LexModeSet::TeXText.const_or(LexModeSet::DefinitionText),
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText),
+            terminating_modes: LexModeSet::TEX_TEXT.const_or(LexModeSet::DEFINITION_TEXT),
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"\'",
             kind: ControlCodeKind::OctalConst,
             special_handling: SpecialHandling::OctalConst,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"\"",
             kind: ControlCodeKind::HexConst,
             special_handling: SpecialHandling::HexConst,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText)
-                .const_or(LexModeSet::Comment /*xetex.web:8641*/),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT)
+                .const_or(LexModeSet::COMMENT /*xetex.web:8641*/),
         },
         ControlCodeInfoRecord {
             selector: b"$",
             kind: ControlCodeKind::StringPoolChecksum,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"{",
             kind: ControlCodeKind::MetaCommentBegin,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"}",
             kind: ControlCodeKind::MetaCommentEnd,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"&",
             kind: ControlCodeKind::ProgramAdjacent,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"^",
             kind: ControlCodeKind::ForceIndex,
             special_handling: SpecialHandling::ControlTextUpToAtGT,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b".",
             kind: ControlCodeKind::ForceIndexMono,
             special_handling: SpecialHandling::ControlTextUpToAtGT,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b":",
             kind: ControlCodeKind::ForceIndexStyle9,
             special_handling: SpecialHandling::ControlTextUpToAtGT,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"t",
             kind: ControlCodeKind::ForceHBox,
             special_handling: SpecialHandling::ControlTextUpToAtGT,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"=",
             kind: ControlCodeKind::ForceVerbatim,
             special_handling: SpecialHandling::ControlTextUpToAtGT,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"\\",
             kind: ControlCodeKind::ForceEOL,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"!",
             kind: ControlCodeKind::UnderlineFlag,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"?",
             kind: ControlCodeKind::NoUnderlineFlag,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::TeXText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::TEX_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b",",
             kind: ControlCodeKind::FormatThinSpace,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"/",
             kind: ControlCodeKind::FormatLineBreak,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"|",
             kind: ControlCodeKind::FormatSuggestLineBreak,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"#",
             kind: ControlCodeKind::FormatLineBreakLarge,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"+",
             kind: ControlCodeKind::FormatNoLineBreak,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b";",
             kind: ControlCodeKind::FormatInvisibleSemicolon,
             special_handling: SpecialHandling::None,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText
-                .const_or(LexModeSet::DefinitionText)
-                .const_or(LexModeSet::InlinePascalText),
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT
+                .const_or(LexModeSet::DEFINITION_TEXT)
+                .const_or(LexModeSet::INLINE_PASCAL_TEXT),
         },
         ControlCodeInfoRecord {
             selector: b"z",
             kind: ControlCodeKind::Ignored,
             special_handling: SpecialHandling::WarnAndIgnore,
-            terminating_modes: LexModeSet::Nothing,
-            appliable_modes: LexModeSet::PascalText,
+            terminating_modes: LexModeSet::NOTHING,
+            appliable_modes: LexModeSet::PASCAL_TEXT,
         },
     ];
     pub fn get_control_code_info_record_for_selector(
@@ -856,12 +844,12 @@ pub mod token {
         use super::control_code::ControlCodeKind;
         match control_code.kind {
             ControlCodeKind::DefineModule | ControlCodeKind::DefineStarredModule => {
-                LexControlFlow::StartNew(LexControlFlowNewItem::Module, LexMode::TeXText, l, pos)
+                LexControlFlow::StartNew(LexControlFlowNewItem::Module, LexMode::TEX_TEXT, l, pos)
             }
             ControlCodeKind::DefineMacro | ControlCodeKind::DefineFormat => {
                 LexControlFlow::StartNew(
                     LexControlFlowNewItem::Definition,
-                    LexMode::DefinitionText,
+                    LexMode::DEFINITION_TEXT,
                     l,
                     pos,
                 )
@@ -869,7 +857,7 @@ pub mod token {
             ControlCodeKind::DefineProgram | ControlCodeKind::ModuleName => {
                 LexControlFlow::StartNew(
                     LexControlFlowNewItem::ProgramText,
-                    LexMode::PascalText,
+                    LexMode::PASCAL_TEXT,
                     l,
                     pos,
                 )
@@ -1012,7 +1000,7 @@ pub mod token {
                 )
             }
             SpecialHandling::ModuleName => {
-                let mode = LexMode::ModuleName;
+                let mode = LexMode::MODULE_NAME;
                 let mut data = rest;
                 let mut pos = pos + 1;
                 let mut tokens = vec![];
@@ -1053,7 +1041,7 @@ pub mod token {
                 (control_code, data, pos)
             }
             SpecialHandling::FormatDefinition | SpecialHandling::MacroDefinition => {
-                let mode = LexMode::DefinitionText;
+                let mode = LexMode::DEFINITION_TEXT;
                 let mut data = rest;
                 let mut pos = pos + 1;
                 let mut tokens = vec![];
@@ -1165,7 +1153,7 @@ pub mod token {
         l: &'x [u8],
         pos: usize,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
-        let mode = LexMode::Comment;
+        let mode = LexMode::COMMENT;
         let mut data = l;
         let mut pos = pos;
         let mut tokens = vec![];
@@ -1266,7 +1254,7 @@ pub mod token {
         parent_mode: LexMode,
         pos: usize,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
-        let mode = LexMode::InlinePascalText;
+        let mode = LexMode::INLINE_PASCAL_TEXT;
         let mut data = l;
         let mut pos = pos;
         let mut tokens = vec![];
@@ -1284,7 +1272,7 @@ pub mod token {
                         tokens.push(token);
                     }
                     LexControlFlow::ModuleNameInlineProgAbort(rest_data, new_pos)
-                        if parent_mode == LexMode::ModuleName =>
+                        if parent_mode == LexMode::MODULE_NAME =>
                     {
                         pos = new_pos;
                         data = rest_data;
@@ -1311,22 +1299,22 @@ pub mod token {
             None => (true, 0),
         };
         match mode {
-            LexMode::Limbo | LexMode::TeXText if l_is_empty => {
+            LexMode::LIMBO | LexMode::TEX_TEXT if l_is_empty => {
                 let empty = ascii_str::from_bytes(l)?;
                 return Ok((Token::TextFragment(empty), LexControlFlow::Finish(l, pos)));
             }
-            LexMode::DefinitionText | LexMode::PascalText if l_is_empty => {
+            LexMode::DEFINITION_TEXT | LexMode::PASCAL_TEXT if l_is_empty => {
                 return Ok((Token::WS, LexControlFlow::Finish(l, pos)));
             }
             _ if l_is_empty => {
                 return Err(LexError::UnexpectedEOF);
             }
-            LexMode::Limbo
-            | LexMode::TeXText
-            | LexMode::PascalText
-            | LexMode::InlinePascalText
-            | LexMode::DefinitionText
-            | LexMode::Comment
+            LexMode::LIMBO
+            | LexMode::TEX_TEXT
+            | LexMode::PASCAL_TEXT
+            | LexMode::INLINE_PASCAL_TEXT
+            | LexMode::DEFINITION_TEXT
+            | LexMode::COMMENT
                 if first_ch == CONTROL_CODE_PREFIX =>
             {
                 let rest = &l[1..];
@@ -1339,7 +1327,7 @@ pub mod token {
                     return Ok((Token::CtrlCode(control_code), new_mode));
                 }
             }
-            LexMode::ModuleName if first_ch == CONTROL_CODE_PREFIX => {
+            LexMode::MODULE_NAME if first_ch == CONTROL_CODE_PREFIX => {
                 use super::control_code::ControlCodeKind;
                 if l.starts_with(SIMPLE_ESCAPED_ATAIL) {
                     let control_code = ControlCode {
@@ -1363,19 +1351,19 @@ pub mod token {
                     return Err(LexError::ControlCodeInNonApplicableMode);
                 }
             }
-            LexMode::Limbo | LexMode::TeXText | LexMode::ModuleName | LexMode::Comment
+            LexMode::LIMBO | LexMode::TEX_TEXT | LexMode::MODULE_NAME | LexMode::COMMENT
                 if first_ch == INLINE_PROGRAM_FRAGMENT =>
             {
                 let rest = &l[1..];
                 return lex_inline_prog_rest(rest, mode, pos + 1);
             }
-            LexMode::Limbo | LexMode::TeXText | LexMode::ModuleName | LexMode::Comment => {
-                use memchr::{memchr, memchr2, memchr3};
+            LexMode::LIMBO | LexMode::TEX_TEXT | LexMode::MODULE_NAME | LexMode::COMMENT => {
+                use memchr::{memchr, memchr2};
                 debug_assert_ne!(first_ch, CONTROL_CODE_PREFIX);
                 debug_assert_ne!(first_ch, INLINE_PROGRAM_FRAGMENT);
-                let text_len = if mode == LexMode::Limbo {
+                let text_len = if mode == LexMode::LIMBO {
                     memchr(CONTROL_CODE_PREFIX, l)
-                } else if mode != LexMode::Comment {
+                } else if mode != LexMode::COMMENT {
                     memchr2(CONTROL_CODE_PREFIX, INLINE_PROGRAM_FRAGMENT, l)
                 } else {
                     let count = l
@@ -1398,7 +1386,7 @@ pub mod token {
                     continue_or_finish(rest, pos + text_len),
                 ));
             }
-            LexMode::PascalText | LexMode::DefinitionText | LexMode::InlinePascalText => {
+            LexMode::PASCAL_TEXT | LexMode::DEFINITION_TEXT | LexMode::INLINE_PASCAL_TEXT => {
                 use super::ascii_char;
                 use super::program_text;
 
@@ -1424,7 +1412,7 @@ pub mod token {
                 } else if first_ch == b'#' {
                     let rest = &l[1..];
                     return Ok((Token::MacroParamMark, continue_or_finish(rest, pos + 1)));
-                } else if mode == LexMode::InlinePascalText
+                } else if mode == LexMode::INLINE_PASCAL_TEXT
                     && first_ch == b'.'
                     && l.starts_with(MODULE_NAME_INLINE_PROGFRAG_ABORT)
                 {
@@ -1494,7 +1482,7 @@ pub struct WEBLexer<'x> {
 impl<'x> WEBLexer<'x> {
     pub fn new(data: &'x [u8]) -> Self {
         let raw_buf = LexerRawBuf {
-            mode: LexMode::Limbo,
+            mode: LexMode::LIMBO,
             data,
             pos: 0,
         };
@@ -1535,13 +1523,13 @@ impl<'x> WEBLexer<'x> {
             let output_tokenlist;
             if let Some(module) = &mut output_module {
                 output_tokenlist = match self.raw_buf.mode {
-                    LexMode::TeXText => &mut module.text_in_tex,
-                    LexMode::DefinitionText => &mut module.definitions,
-                    LexMode::PascalText => &mut module.code_in_pascal,
+                    LexMode::TEX_TEXT => &mut module.text_in_tex,
+                    LexMode::DEFINITION_TEXT => &mut module.definitions,
+                    LexMode::PASCAL_TEXT => &mut module.code_in_pascal,
                     _ => unreachable!(),
                 };
             } else {
-                assert!(self.raw_buf.mode == LexMode::Limbo);
+                assert!(self.raw_buf.mode == LexMode::LIMBO);
                 output_tokenlist = &mut self.limbo_buf.as_mut().unwrap().limbo_tokens;
             }
 

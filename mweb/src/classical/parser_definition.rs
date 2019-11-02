@@ -49,10 +49,11 @@ pub enum ParseDefinitionError {
 pub(crate) fn parse_definition<'x>(
     token: Token<'x>,
 ) -> Result<Option<Definition<'x>>, ParseDefinitionError> {
-    use super::super::utils::IteratorAdvanceIf;
+    use super::super::utils::PeekingNextIfEq;
     use super::lexer::control_code::{ControlCode, ControlCodeKind};
     use super::lexer::operator::Operator;
     use super::lexer::punctuation::Punctuation;
+    use itertools::Itertools;
 
     match token {
         Token::CtrlCode(ControlCode {
@@ -61,25 +62,25 @@ pub(crate) fn parse_definition<'x>(
         }) => {
             let tokens = *param.ok_or(ParseDefinitionError::InvalidMacro)?;
             let mut token_iter = tokens.into_iter().peekable();
-            let _ = token_iter.advance_if_eq(Token::WS);
+            let _ = token_iter.peeking_next_if_eq(Token::WS);
             let name = match token_iter.next() {
                 Some(Token::Ident(name)) => name,
                 _ => {
                     return Err(ParseDefinitionError::InvalidMacro);
                 }
             };
-            let _ = token_iter.advance_if_eq(Token::WS);
+            let _ = token_iter.peeking_next_if_eq(Token::WS);
             let has_arg;
-            if let Some(_) = token_iter.advance_if_eq(Token::Punct(Punctuation::LParen)) {
-                let _ = token_iter.advance_if_eq(Token::WS);
+            if let Some(_) = token_iter.peeking_next_if_eq(Token::Punct(Punctuation::LParen)) {
+                let _ = token_iter.peeking_next_if_eq(Token::WS);
                 let _ = token_iter
-                    .advance_if_eq(Token::MacroParamMark)
+                    .peeking_next_if_eq(Token::MacroParamMark)
                     .ok_or(ParseDefinitionError::InvalidTokenMacro)?;
-                let _ = token_iter.advance_if_eq(Token::WS);
+                let _ = token_iter.peeking_next_if_eq(Token::WS);
                 let _ = token_iter
-                    .advance_if_eq(Token::Punct(Punctuation::RParen))
+                    .peeking_next_if_eq(Token::Punct(Punctuation::RParen))
                     .ok_or(ParseDefinitionError::InvalidTokenMacro)?;
-                let _ = token_iter.advance_if_eq(Token::WS);
+                let _ = token_iter.peeking_next_if_eq(Token::WS);
                 has_arg = true;
             } else {
                 has_arg = false;
@@ -87,14 +88,16 @@ pub(crate) fn parse_definition<'x>(
             let numeric;
             if has_arg {
                 let _ = token_iter
-                    .advance_if_eq(Token::Punct(Punctuation::DefineAs))
+                    .peeking_next_if_eq(Token::Punct(Punctuation::DefineAs))
                     .ok_or(ParseDefinitionError::InvalidTokenMacro)?;
                 numeric = false;
-            } else if let Some(_) = token_iter.advance_if_eq(Token::Punct(Punctuation::DefineAs)) {
+            } else if let Some(_) =
+                token_iter.peeking_next_if_eq(Token::Punct(Punctuation::DefineAs))
+            {
                 numeric = false
             } else {
                 let _ = token_iter
-                    .advance_if_eq(Token::Punct(Punctuation::Op(Operator::Equal)))
+                    .peeking_next_if_eq(Token::Punct(Punctuation::Op(Operator::Equal)))
                     .ok_or(ParseDefinitionError::InvalidMacro)?;
                 numeric = true;
             }
@@ -119,18 +122,18 @@ pub(crate) fn parse_definition<'x>(
         }) => {
             let tokens = *param.ok_or(ParseDefinitionError::InvalidFormat)?;
             let mut token_iter = tokens.into_iter().peekable();
-            let _ = token_iter.advance_if_eq(Token::WS);
+            let _ = token_iter.peeking_next_if_eq(Token::WS);
             let name = match token_iter.next() {
                 Some(Token::Ident(name)) => name,
                 _ => {
                     return Err(ParseDefinitionError::InvalidFormat);
                 }
             };
-            let _ = token_iter.advance_if_eq(Token::WS);
+            let _ = token_iter.peeking_next_if_eq(Token::WS);
             let _ = token_iter
-                .advance_if_eq(Token::Punct(Punctuation::DefineAs))
+                .peeking_next_if_eq(Token::Punct(Punctuation::DefineAs))
                 .ok_or(ParseDefinitionError::InvalidFormat)?;
-            let _ = token_iter.advance_if_eq(Token::WS);
+            let _ = token_iter.peeking_next_if_eq(Token::WS);
             let target_ident = match token_iter.next() {
                 Some(Token::Ident(ident)) => ident,
                 _ => {
@@ -138,7 +141,7 @@ pub(crate) fn parse_definition<'x>(
                 }
             };
             let comments = token_iter
-                .advance_if_iter(|token| match token {
+                .peeking_take_while(|token| match token {
                     Token::WS => true,
                     Token::Comment(..) => true,
                     Token::CtrlCode(ControlCode {

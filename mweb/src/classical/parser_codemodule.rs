@@ -97,7 +97,7 @@ fn read_code_module_tokens<'x>(
                     }
                 }
             }
-            Some(_) => {},
+            Some(_) => {}
             None => {
                 break 'code_module_loop;
             }
