@@ -52,6 +52,11 @@ impl<'x> MacroDefinitionSet<'x> {
 
 impl<'x> WEB<'x> {
     pub fn tangle(&self, output: &mut dyn io::Write) -> Result<(), WEBTangleProcessError> {
+        for module in self.text_in_modules.iter() {
+            for code_module in module.code_in_pascal.iter() {
+                writeln!(output, "{:?}", code_module)?;
+            }
+        }
         // collect macro definitions.
         /*
         let macro_set = MacroDefinitionSet::load_from(self)?;

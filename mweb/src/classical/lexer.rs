@@ -86,8 +86,20 @@ pub mod ascii_char {
 pub mod ascii_str {
     use std::fmt::{self, Debug};
     use thiserror::Error;
+    #[repr(transparent)]
     #[derive(PartialEq)]
     pub struct AsciiStr(pub [u8]);
+
+    impl AsciiStr {
+        pub fn try_split_ending_substr(&self, bytes: &Self) -> (&Self, Option<&Self>) {
+            if (self.0).ends_with(&bytes.0) {
+                let pos = self.0.len() - bytes.0.len();
+                unsafe { std::mem::transmute((&(self.0)[..pos], Some(&(self.0)[pos..]))) }
+            } else {
+                (self, None)
+            }
+        }
+    }
 
     #[derive(Error, Debug)]
     #[error("not 7-bit ascii string")]
@@ -582,7 +594,7 @@ pub mod punctuation {
         EndOfLastStatement,
         DefineAs,
         Dollar,
-        Backslash/*xetex.web:24446*/,
+        Backslash, /*xetex.web:24446*/
     }
 
     pub struct PunctuationInfo {
