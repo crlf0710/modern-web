@@ -1,3 +1,4 @@
+use crate::utils::U8SpanRef;
 use thiserror::Error;
 
 pub mod ascii_char {
@@ -748,57 +749,10 @@ pub enum LexControlFlowNewItem {
 }
 
 pub enum LexControlFlow<'x> {
-    Continue(&'x [u8], usize),
-    Finish(&'x [u8], usize),
-    StartNew(LexControlFlowNewItem, LexMode, &'x [u8], usize),
-    ModuleNameInlineProgAbort(&'x [u8], usize),
-}
-
-pub mod program_text {
-    use super::punctuation::Punctuation;
-    pub type U8SlicePair<'x> = (&'x [u8], &'x [u8]);
-
-    pub fn parse_maybe_whitespace(l: &[u8]) -> U8SlicePair<'_> {
-        use super::ascii_char::is_whitespace_char;
-        let pos = l
-            .iter()
-            .copied()
-            .take_while(|&ch| is_whitespace_char(ch))
-            .count();
-        l.split_at(pos)
-    }
-
-    pub fn parse_identifier(l: &[u8]) -> Option<U8SlicePair<'_>> {
-        use super::ascii_char::{is_id_continue, is_id_start};
-        let pos = l
-            .iter()
-            .copied()
-            .enumerate()
-            .take_while(|&(n, ch)| {
-                if n == 0 {
-                    is_id_start(ch)
-                } else {
-                    is_id_continue(ch)
-                }
-            })
-            .count();
-
-        if pos == 0 {
-            return None;
-        }
-        Some(l.split_at(pos))
-    }
-
-    pub fn parse_punct(l: &[u8]) -> Option<(Punctuation, usize, &[u8])> {
-        use super::punctuation::PUNCTUATION_TABLE;
-        for table_item in PUNCTUATION_TABLE {
-            if l.starts_with(table_item.literal) {
-                let literal_len = table_item.literal.len();
-                return Some((table_item.kind.clone(), literal_len, &l[literal_len..]));
-            }
-        }
-        None
-    }
+    Continue(U8SpanRef<'x>),
+    Finish(U8SpanRef<'x>),
+    StartNew(LexControlFlowNewItem, LexMode, U8SpanRef<'x>),
+    ModuleNameInlineProgAbort(U8SpanRef<'x>),
 }
 
 pub mod token {
@@ -808,6 +762,7 @@ pub mod token {
     use super::literal::Literal;
     use super::punctuation::Punctuation;
     use super::{LexControlFlow, LexControlFlowNewItem, LexError, LexMode};
+    use crate::utils::U8SpanRef;
 
     #[derive(Debug, PartialEq)]
     pub enum Token<'x> {
@@ -828,30 +783,25 @@ pub mod token {
     pub type TokenList<'x> = Vec<Token<'x>>;
     pub type BoxedTokenList<'x> = Box<Vec<Token<'x>>>;
 
-    fn continue_or_finish(l: &[u8], pos: usize) -> LexControlFlow<'_> {
+    fn continue_or_finish(l: U8SpanRef<'_>) -> LexControlFlow<'_> {
         if l.is_empty() {
-            LexControlFlow::Finish(l, pos)
+            LexControlFlow::Finish(l)
         } else {
-            LexControlFlow::Continue(l, pos)
+            LexControlFlow::Continue(l)
         }
     }
 
-    fn switch_mode<'x>(
-        control_code: &ControlCode<'x>,
-        l: &'x [u8],
-        pos: usize,
-    ) -> LexControlFlow<'x> {
+    fn switch_mode<'x>(control_code: &ControlCode<'x>, l: U8SpanRef<'x>) -> LexControlFlow<'x> {
         use super::control_code::ControlCodeKind;
         match control_code.kind {
             ControlCodeKind::DefineModule | ControlCodeKind::DefineStarredModule => {
-                LexControlFlow::StartNew(LexControlFlowNewItem::Module, LexMode::TEX_TEXT, l, pos)
+                LexControlFlow::StartNew(LexControlFlowNewItem::Module, LexMode::TEX_TEXT, l)
             }
             ControlCodeKind::DefineMacro | ControlCodeKind::DefineFormat => {
                 LexControlFlow::StartNew(
                     LexControlFlowNewItem::Definition,
                     LexMode::DEFINITION_TEXT,
                     l,
-                    pos,
                 )
             }
             ControlCodeKind::DefineProgram | ControlCodeKind::ModuleName => {
@@ -859,7 +809,6 @@ pub mod token {
                     LexControlFlowNewItem::ProgramText,
                     LexMode::PASCAL_TEXT,
                     l,
-                    pos,
                 )
             }
             _ => unreachable! {},
@@ -906,16 +855,17 @@ pub mod token {
         }
     }
 
-    pub fn lex_numeric_literal(l: &[u8]) -> Result<(Literal, usize, &[u8]), LexError> {
+    pub fn lex_numeric_literal(l: U8SpanRef<'_>) -> Result<(Literal, U8SpanRef<'_>), LexError> {
         use super::ascii_char::is_numeric_char;
         let count_int = l
+            .bytes()
             .iter()
             .copied()
             .take_while(|&ch| is_numeric_char(ch))
             .count();
-        let has_dot = count_int > 0 && l[count_int..].starts_with(b".");
+        let has_dot = count_int > 0 && l.bytes()[count_int..].starts_with(b".");
         let count_fraction = if has_dot {
-            l[count_int + 1..]
+            l.bytes()[count_int + 1..]
                 .iter()
                 .copied()
                 .take_while(|&ch| is_numeric_char(ch))
@@ -926,30 +876,76 @@ pub mod token {
         if has_dot && count_fraction > 0 {
             let (numeric, rest) = l.split_at(count_int + 1 + count_fraction);
             let literal = lex_f64_literal(numeric)?;
-            Ok((literal, numeric.len(), rest))
+            Ok((literal, rest))
         } else if count_int > 0 {
             let (numeric, rest) = l.split_at(count_int);
             let literal = lex_u32_literal_with_radix(numeric, 10)?;
-            Ok((literal, numeric.len(), rest))
+            Ok((literal, rest))
         } else {
             Err(LexError::NumericLiteralNotProperlyFinished)
         }
     }
 
+    fn lex_maybe_whitespace<'x>(l: U8SpanRef<'x>) -> (&'x [u8], U8SpanRef<'x>) {
+        use super::ascii_char::is_whitespace_char;
+        let pos = l
+            .bytes()
+            .iter()
+            .copied()
+            .take_while(|&ch| is_whitespace_char(ch))
+            .count();
+        l.split_at(pos)
+    }
+
+    fn lex_identifier<'x>(l: U8SpanRef<'x>) -> (Option<&'x [u8]>, U8SpanRef<'x>) {
+        use super::ascii_char::{is_id_continue, is_id_start};
+        let pos = l
+            .bytes()
+            .iter()
+            .copied()
+            .enumerate()
+            .take_while(|&(n, ch)| {
+                if n == 0 {
+                    is_id_start(ch)
+                } else {
+                    is_id_continue(ch)
+                }
+            })
+            .count();
+
+        if pos == 0 {
+            (None, l)
+        } else {
+            let (head, rest) = l.split_at(pos);
+            (Some(head), rest)
+        }
+    }
+
+    fn lex_punct<'x>(l: U8SpanRef<'x>) -> (Option<Punctuation>, U8SpanRef<'x>) {
+        use super::punctuation::PUNCTUATION_TABLE;
+        for table_item in PUNCTUATION_TABLE {
+            if l.starts_with(table_item.literal) {
+                let literal_len = table_item.literal.len();
+                let (_, rest) = l.split_at(literal_len);
+                return (Some(table_item.kind.clone()), rest);
+            }
+        }
+        (None, l)
+    }
+
     fn lex_control_code_rest<'x>(
-        l: &'x [u8],
+        l: U8SpanRef<'x>,
         mode: LexMode,
-        pos: usize,
-    ) -> Result<(ControlCode<'x>, &'x [u8], usize, bool), LexError> {
+    ) -> Result<(ControlCode<'x>, U8SpanRef<'x>, bool), LexError> {
         use super::control_code::get_control_code_info_record_for_selector;
         use super::control_code::SpecialHandling;
-        let selector = l.get(0).copied().ok_or_else(|| LexError::UnexpectedEOF)?;
+        let selector = l.front_cloned().ok_or_else(|| LexError::UnexpectedEOF)?;
 
         let control_code_info =
             get_control_code_info_record_for_selector(selector).ok_or_else(|| {
                 LexError::InvalidControlCodeChar {
                     control_code: selector,
-                    pos: pos,
+                    pos: l.pos(),
                 }
             })?;
 
@@ -961,24 +957,26 @@ pub mod token {
 
         let is_terminator = control_code_info.terminating_modes.contains_mode(mode);
 
-        let rest = &l[1..];
-        let (control_code, rest, pos) = match control_code_info.special_handling {
+        let rest = l.range(1..);
+        let (control_code, rest) = match control_code_info.special_handling {
             SpecialHandling::None => {
                 let control_code = ControlCode {
                     kind: control_code_info.kind,
                     param: None,
                 };
-                (control_code, rest, pos + 1)
+                (control_code, rest)
             }
             SpecialHandling::GroupTitle => {
                 let group_title_start = rest
+                    .bytes()
                     .iter()
                     .take_while(|&&ch| is_inline_whitespace_char(ch))
                     .count();
-                let group_title_end = memchr::memchr2(b'.', b'\n', rest).unwrap_or(rest.len());
+                let group_title_end =
+                    memchr::memchr2(b'.', b'\n', rest.bytes()).unwrap_or(rest.len());
 
                 let control_text_end;
-                if !rest[group_title_end..].starts_with(b".") {
+                if !rest.range(group_title_end..).starts_with(b".") {
                     eprintln!(
                         "WARN: module group title not finished with dot character, continuing."
                     );
@@ -988,28 +986,22 @@ pub mod token {
                     control_text_end = group_title_end + 1;
                 }
                 let group_title_text =
-                    ascii_str::from_bytes(&rest[group_title_start..group_title_end])?;
+                    ascii_str::from_bytes(&rest.bytes()[group_title_start..group_title_end])?;
                 let control_code = ControlCode {
                     kind: control_code_info.kind,
                     param: Some(Box::new(vec![Token::TextFragment(group_title_text)])),
                 };
-                (
-                    control_code,
-                    &rest[control_text_end..],
-                    pos + 1 + control_text_end,
-                )
+                (control_code, rest.range(control_text_end..))
             }
             SpecialHandling::ModuleName => {
                 let mode = LexMode::MODULE_NAME;
                 let mut data = rest;
-                let mut pos = pos + 1;
                 let mut tokens = vec![];
                 'module_name_loop: loop {
                     use super::control_code::ControlCodeKind;
-                    let (token, control_flow) = lex_token(data, mode, pos)?;
+                    let (token, control_flow) = lex_token(data, mode)?;
                     match control_flow {
-                        LexControlFlow::Continue(rest_data, new_pos) => {
-                            pos = new_pos;
+                        LexControlFlow::Continue(rest_data) => {
                             data = rest_data;
                             match token {
                                 Token::CtrlCode(ControlCode {
@@ -1038,12 +1030,11 @@ pub mod token {
                     kind: control_code_info.kind,
                     param: Some(Box::new(tokens)),
                 };
-                (control_code, data, pos)
+                (control_code, data)
             }
             SpecialHandling::FormatDefinition | SpecialHandling::MacroDefinition => {
                 let mode = LexMode::DEFINITION_TEXT;
                 let mut data = rest;
-                let mut pos = pos + 1;
                 let mut tokens = vec![];
                 'definition_loop: loop {
                     if data.starts_with(START_OF_MACRO_DEFINITION)
@@ -1051,15 +1042,13 @@ pub mod token {
                     {
                         break 'definition_loop;
                     }
-                    let (token, control_flow) = lex_token(data, mode, pos)?;
+                    let (token, control_flow) = lex_token(data, mode)?;
                     match control_flow {
-                        LexControlFlow::Continue(rest_data, new_pos) => {
-                            pos = new_pos;
+                        LexControlFlow::Continue(rest_data) => {
                             data = rest_data;
                             tokens.push(token);
                         }
-                        LexControlFlow::Finish(rest_data, new_pos) => {
-                            pos = new_pos;
+                        LexControlFlow::Finish(rest_data) => {
                             data = rest_data;
                             tokens.push(token);
                             break 'definition_loop;
@@ -1076,61 +1065,61 @@ pub mod token {
                     kind: control_code_info.kind,
                     param: Some(Box::new(tokens)),
                 };
-                (control_code, data, pos)
+                (control_code, data)
             }
             SpecialHandling::OctalConst => {
                 let octal_digit_count = rest
+                    .bytes()
                     .iter()
                     .copied()
                     .take_while(|&ch| is_octal_digit(ch))
                     .count();
-                let octal_digits = &rest[..octal_digit_count];
+                let (octal_digits, rest) = rest.split_at(octal_digit_count);
                 let literal = lex_u32_literal_with_radix(octal_digits, 8)?;
                 let control_code = ControlCode {
                     kind: control_code_info.kind,
                     param: Some(Box::new(vec![Token::Literal(literal)])),
                 };
-                (
-                    control_code,
-                    &rest[octal_digit_count..],
-                    pos + 1 + octal_digit_count,
-                )
+                (control_code, rest)
             }
             SpecialHandling::HexConst => {
                 let hex_digit_count = rest
+                    .bytes()
                     .iter()
                     .copied()
                     .take_while(|&ch| is_hex_digit(ch))
                     .count();
-                let hex_digits = &rest[..hex_digit_count];
+                let (hex_digits, rest) = rest.split_at(hex_digit_count);
                 let literal = lex_u32_literal_with_radix(hex_digits, 16)?;
                 let control_code = ControlCode {
                     kind: control_code_info.kind,
                     param: Some(Box::new(vec![Token::Literal(literal)])),
                 };
-                (
-                    control_code,
-                    &rest[hex_digit_count..],
-                    pos + 1 + hex_digit_count,
-                )
+                (control_code, rest)
             }
             SpecialHandling::ControlTextUpToAtGT => {
-                let control_text_len =
-                    memchr::memchr3(CONTROL_CODE_PREFIX, LINE_FEED, CARRIAGE_RETURN, rest)
-                        .unwrap_or(rest.len());
-                if !rest[control_text_len..].starts_with(END_OF_CONTROL_TEXT) {
+                let control_text_len = memchr::memchr3(
+                    CONTROL_CODE_PREFIX,
+                    LINE_FEED,
+                    CARRIAGE_RETURN,
+                    rest.bytes(),
+                )
+                .unwrap_or(rest.len());
+                if !rest
+                    .range(control_text_len..)
+                    .starts_with(END_OF_CONTROL_TEXT)
+                {
                     return Err(LexError::ControlTextNotProperlyFinished);
                 }
                 let control_code = ControlCode {
                     kind: control_code_info.kind,
                     param: Some(Box::new(vec![Token::TextFragment(ascii_str::from_bytes(
-                        &rest[..control_text_len],
+                        &rest.bytes()[..control_text_len],
                     )?)])),
                 };
                 (
                     control_code,
-                    &rest[control_text_len + END_OF_CONTROL_TEXT.len()..],
-                    pos + 1 + control_text_len + END_OF_CONTROL_TEXT.len(),
+                    rest.range(control_text_len + END_OF_CONTROL_TEXT.len()..),
                 )
             }
             SpecialHandling::WarnAndIgnore => {
@@ -1143,57 +1132,54 @@ pub mod token {
                     kind: ControlCodeKind::Ignored,
                     param: None,
                 };
-                (control_code, rest, pos + 1)
+                (control_code, rest)
             }
         };
-        Ok((control_code, rest, pos, is_terminator))
+        Ok((control_code, rest, is_terminator))
     }
 
     pub fn lex_comment_rest<'x>(
-        l: &'x [u8],
-        pos: usize,
+        l: U8SpanRef<'x>,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
         let mode = LexMode::COMMENT;
-        let mut data = l;
-        let mut pos = pos;
+        let mut l = l;
         let mut tokens = vec![];
 
         let mut level = 1usize;
         'comment_loop: loop {
-            if data.starts_with(b"\\") {
-                if data.len() >= 2 {
-                    let escaped_fragment = Token::TextFragment(ascii_str::from_bytes(&l[..2])?);
+            if l.starts_with(b"\\") {
+                let (head, rest) = l.split_at(2);
+                if l.len() >= 2 {
+                    let escaped_fragment = Token::TextFragment(ascii_str::from_bytes(head)?);
                     tokens.push(escaped_fragment);
-                    data = &data[2..];
-                    pos += 2;
+                    l = rest;
                 } else {
                     return Err(LexError::CommentNotProperlyFinished);
                 }
-            } else if data.starts_with(b"{") {
-                let fragment = Token::TextFragment(ascii_str::from_bytes(&l[..1])?);
+            } else if l.starts_with(b"{") {
+                let (head, rest) = l.split_at(1);
+                let fragment = Token::TextFragment(ascii_str::from_bytes(head)?);
                 tokens.push(fragment);
                 level = level
                     .checked_add(1)
                     .ok_or(LexError::CommentNestingTooDeep)?;
-                data = &data[1..];
-                pos += 1;
-            } else if data.starts_with(b"}") {
+                l = rest;
+            } else if l.starts_with(b"}") {
+                let (head, rest) = l.split_at(1);
                 level -= 1;
                 if level != 0 {
-                    let fragment = Token::TextFragment(ascii_str::from_bytes(&l[..1])?);
+                    let fragment = Token::TextFragment(ascii_str::from_bytes(head)?);
                     tokens.push(fragment);
                 }
-                data = &data[1..];
-                pos += 1;
+                l = rest;
                 if level == 0 {
                     break 'comment_loop;
                 }
             } else {
-                let (token, control_flow) = lex_token(data, mode, pos)?;
+                let (token, control_flow) = lex_token(l, mode)?;
                 match control_flow {
-                    LexControlFlow::Continue(rest_data, new_pos) => {
-                        pos = new_pos;
-                        data = rest_data;
+                    LexControlFlow::Continue(rest_data) => {
+                        l = rest_data;
                         tokens.push(token);
                     }
                     LexControlFlow::Finish(..) => {
@@ -1209,72 +1195,61 @@ pub mod token {
             }
         }
         let token = Token::Comment(Box::new(tokens));
-        Ok((token, continue_or_finish(data, pos)))
+        Ok((token, continue_or_finish(l)))
     }
 
     fn lex_string_literal_rest<'x>(
-        l: &'x [u8],
-        pos: usize,
+        l: U8SpanRef<'x>,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
         // fixme: properly parse string literal
-        let text_end = memchr::memchr2(b'\'', b'\n', l).unwrap_or(l.len());
-        if !l[text_end..].starts_with(b"\'") {
+        let text_end = memchr::memchr2(b'\'', b'\n', l.bytes()).unwrap_or(l.len());
+        if !l.range(text_end..).starts_with(b"\'") {
             return Err(LexError::StringLiteralNotProperlyFinished);
         }
-        let comment_end = text_end + 1;
-        let literal_text = ascii_str::from_bytes(&l[..text_end])?;
+        let literal_end = text_end + 1;
+        let literal_text = ascii_str::from_bytes(&l.bytes()[..text_end])?;
         let token = Token::Literal(Literal::StringLiteral(literal_text));
-        Ok((
-            token,
-            continue_or_finish(&l[comment_end..], pos + comment_end),
-        ))
+        Ok((token, continue_or_finish(l.range(literal_end..))))
     }
 
     fn lex_preprocessed_string_literal_rest<'x>(
-        l: &'x [u8],
-        pos: usize,
+        l: U8SpanRef<'x>,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
         // fixme: properly parse string literal
-        let text_end = memchr::memchr2(b'\"', b'\n', l).unwrap_or(l.len());
-        if !l[text_end..].starts_with(b"\"") {
+        let text_end = memchr::memchr2(b'\"', b'\n', l.bytes()).unwrap_or(l.len());
+        if !l.range(text_end..).starts_with(b"\"") {
             return Err(LexError::PreprocessedStringLiteralNotProperlyFinished);
         }
-        let comment_end = text_end + 1;
+        let literal_end = text_end + 1;
         let mut tokens = vec![];
-        tokens.push(Token::TextFragment(ascii_str::from_bytes(&l[..text_end])?));
+        tokens.push(Token::TextFragment(ascii_str::from_bytes(
+            &l.bytes()[..text_end],
+        )?));
         let token = Token::Literal(Literal::PreprocessedStringLiteral(Box::new(tokens)));
-        Ok((
-            token,
-            continue_or_finish(&l[comment_end..], pos + comment_end),
-        ))
+        Ok((token, continue_or_finish(l.range(literal_end..))))
     }
 
     fn lex_inline_prog_rest<'x>(
-        l: &'x [u8],
+        l: U8SpanRef<'x>,
         parent_mode: LexMode,
-        pos: usize,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
         let mode = LexMode::INLINE_PASCAL_TEXT;
         let mut data = l;
-        let mut pos = pos;
         let mut tokens = vec![];
         'inline_prog_loop: loop {
             if data.starts_with(b"|") {
-                data = &data[1..];
-                pos = pos + 1;
+                data = data.range(1..);
                 break 'inline_prog_loop;
             } else {
-                let (token, control_flow) = lex_token(data, mode, pos)?;
+                let (token, control_flow) = lex_token(data, mode)?;
                 match control_flow {
-                    LexControlFlow::Continue(rest_data, new_pos) => {
-                        pos = new_pos;
+                    LexControlFlow::Continue(rest_data) => {
                         data = rest_data;
                         tokens.push(token);
                     }
-                    LexControlFlow::ModuleNameInlineProgAbort(rest_data, new_pos)
+                    LexControlFlow::ModuleNameInlineProgAbort(rest_data)
                         if parent_mode == LexMode::MODULE_NAME =>
                     {
-                        pos = new_pos;
                         data = rest_data;
                         tokens.push(token);
                         break 'inline_prog_loop;
@@ -1286,25 +1261,24 @@ pub mod token {
             }
         }
         let token = Token::InlineProgramFragment(Box::new(tokens));
-        Ok((token, continue_or_finish(data, pos)))
+        Ok((token, continue_or_finish(data)))
     }
 
     pub fn lex_token<'x>(
-        l: &'x [u8],
+        l: U8SpanRef<'x>,
         mode: LexMode,
-        pos: usize,
     ) -> Result<(Token<'x>, LexControlFlow<'x>), LexError> {
-        let (l_is_empty, first_ch) = match l.get(0) {
-            Some(&ch) => (false, ch),
+        let (l_is_empty, first_ch) = match l.front_cloned() {
+            Some(ch) => (false, ch),
             None => (true, 0),
         };
         match mode {
             LexMode::LIMBO | LexMode::TEX_TEXT if l_is_empty => {
-                let empty = ascii_str::from_bytes(l)?;
-                return Ok((Token::TextFragment(empty), LexControlFlow::Finish(l, pos)));
+                let empty = ascii_str::from_bytes(l.bytes())?;
+                return Ok((Token::TextFragment(empty), LexControlFlow::Finish(l)));
             }
             LexMode::DEFINITION_TEXT | LexMode::PASCAL_TEXT if l_is_empty => {
-                return Ok((Token::WS, LexControlFlow::Finish(l, pos)));
+                return Ok((Token::WS, LexControlFlow::Finish(l)));
             }
             _ if l_is_empty => {
                 return Err(LexError::UnexpectedEOF);
@@ -1317,13 +1291,12 @@ pub mod token {
             | LexMode::COMMENT
                 if first_ch == CONTROL_CODE_PREFIX =>
             {
-                let rest = &l[1..];
-                let (control_code, rest, pos, is_terminator) =
-                    lex_control_code_rest(rest, mode, pos + 1)?;
+                let rest = l.range(1..);
+                let (control_code, rest, is_terminator) = lex_control_code_rest(rest, mode)?;
                 if !is_terminator {
-                    return Ok((Token::CtrlCode(control_code), continue_or_finish(rest, pos)));
+                    return Ok((Token::CtrlCode(control_code), continue_or_finish(rest)));
                 } else {
-                    let new_mode = switch_mode(&control_code, rest, pos);
+                    let new_mode = switch_mode(&control_code, rest);
                     return Ok((Token::CtrlCode(control_code), new_mode));
                 }
             }
@@ -1336,7 +1309,7 @@ pub mod token {
                     };
                     return Ok((
                         Token::CtrlCode(control_code),
-                        continue_or_finish(&l[2..], pos + 2),
+                        continue_or_finish(l.range(2..)),
                     ));
                 } else if l.starts_with(END_OF_CONTROL_TEXT) {
                     let control_code = ControlCode {
@@ -1345,7 +1318,7 @@ pub mod token {
                     };
                     return Ok((
                         Token::CtrlCode(control_code),
-                        continue_or_finish(&l[2..], pos + 2),
+                        continue_or_finish(l.range(2..)),
                     ));
                 } else {
                     return Err(LexError::ControlCodeInNonApplicableMode);
@@ -1354,19 +1327,20 @@ pub mod token {
             LexMode::LIMBO | LexMode::TEX_TEXT | LexMode::MODULE_NAME | LexMode::COMMENT
                 if first_ch == INLINE_PROGRAM_FRAGMENT =>
             {
-                let rest = &l[1..];
-                return lex_inline_prog_rest(rest, mode, pos + 1);
+                let rest = l.range(1..);
+                return lex_inline_prog_rest(rest, mode);
             }
             LexMode::LIMBO | LexMode::TEX_TEXT | LexMode::MODULE_NAME | LexMode::COMMENT => {
                 use memchr::{memchr, memchr2};
                 debug_assert_ne!(first_ch, CONTROL_CODE_PREFIX);
                 debug_assert_ne!(first_ch, INLINE_PROGRAM_FRAGMENT);
                 let text_len = if mode == LexMode::LIMBO {
-                    memchr(CONTROL_CODE_PREFIX, l)
+                    memchr(CONTROL_CODE_PREFIX, l.bytes())
                 } else if mode != LexMode::COMMENT {
-                    memchr2(CONTROL_CODE_PREFIX, INLINE_PROGRAM_FRAGMENT, l)
+                    memchr2(CONTROL_CODE_PREFIX, INLINE_PROGRAM_FRAGMENT, l.bytes())
                 } else {
                     let count = l
+                        .bytes()
                         .iter()
                         .take_while(|&&ch| {
                             ch != CONTROL_CODE_PREFIX
@@ -1381,58 +1355,50 @@ pub mod token {
                 .unwrap_or_else(|| l.len());
                 let (text, rest) = l.split_at(text_len);
                 let text = ascii_str::from_bytes(text)?;
-                return Ok((
-                    Token::TextFragment(text),
-                    continue_or_finish(rest, pos + text_len),
-                ));
+                return Ok((Token::TextFragment(text), continue_or_finish(rest)));
             }
             LexMode::PASCAL_TEXT | LexMode::DEFINITION_TEXT | LexMode::INLINE_PASCAL_TEXT => {
                 use super::ascii_char;
-                use super::program_text;
 
                 debug_assert!(first_ch != CONTROL_CODE_PREFIX);
                 if ascii_char::is_whitespace_char(first_ch) {
-                    let (ws, rest) = program_text::parse_maybe_whitespace(l);
-                    return Ok((Token::WS, continue_or_finish(rest, pos + ws.len())));
+                    let (_, rest) = lex_maybe_whitespace(l);
+                    return Ok((Token::WS, continue_or_finish(rest)));
                 } else if ascii_char::is_id_start(first_ch) {
-                    let (id, rest) = program_text::parse_identifier(l).expect("");
+                    let (id, rest) = lex_identifier(l);
+                    let id = id.expect("");
                     return Ok((
                         Token::Ident(ascii_str::from_bytes(id)?),
-                        continue_or_finish(rest, pos + id.len()),
+                        continue_or_finish(rest),
                     ));
                 } else if first_ch == b'{' {
-                    let rest = &l[1..];
-                    return lex_comment_rest(rest, pos + 1);
+                    let rest = l.range(1..);
+                    return lex_comment_rest(rest);
                 } else if first_ch == b'\'' {
-                    let rest = &l[1..];
-                    return lex_string_literal_rest(rest, pos + 1);
+                    let rest = l.range(1..);
+                    return lex_string_literal_rest(rest);
                 } else if first_ch == b'\"' {
-                    let rest = &l[1..];
-                    return lex_preprocessed_string_literal_rest(rest, pos + 1);
+                    let rest = l.range(1..);
+                    return lex_preprocessed_string_literal_rest(rest);
                 } else if first_ch == b'#' {
-                    let rest = &l[1..];
-                    return Ok((Token::MacroParamMark, continue_or_finish(rest, pos + 1)));
+                    let rest = l.range(1..);
+                    return Ok((Token::MacroParamMark, continue_or_finish(rest)));
                 } else if mode == LexMode::INLINE_PASCAL_TEXT
                     && first_ch == b'.'
                     && l.starts_with(MODULE_NAME_INLINE_PROGFRAG_ABORT)
                 {
                     return Ok((
                         Token::ModuleNameInlineProgAbort,
-                        LexControlFlow::ModuleNameInlineProgAbort(l, pos),
+                        LexControlFlow::ModuleNameInlineProgAbort(l),
                     ));
                 } else if ascii_char::is_punct_char(first_ch) {
-                    let (punct, punct_len, rest) = program_text::parse_punct(l)
-                        .ok_or_else(|| LexError::UnrecognizedPunctuation(first_ch as char))?;
-                    return Ok((
-                        Token::Punct(punct),
-                        continue_or_finish(rest, pos + punct_len),
-                    ));
+                    let (punct, rest) = lex_punct(l);
+                    let punct =
+                        punct.ok_or_else(|| LexError::UnrecognizedPunctuation(first_ch as char))?;
+                    return Ok((Token::Punct(punct), continue_or_finish(rest)));
                 } else if ascii_char::is_numeric_char(first_ch) {
-                    let (numeric, numeric_len, rest) = lex_numeric_literal(l)?;
-                    return Ok((
-                        Token::Literal(numeric),
-                        continue_or_finish(rest, pos + numeric_len),
-                    ));
+                    let (numeric, rest) = lex_numeric_literal(l)?;
+                    return Ok((Token::Literal(numeric), continue_or_finish(rest)));
                 } else {
                     unimplemented!("{:?}", first_ch);
                 }
@@ -1444,8 +1410,7 @@ pub mod token {
 
 pub struct LexerRawBuf<'x> {
     mode: LexMode,
-    data: &'x [u8],
-    pos: usize,
+    data: U8SpanRef<'x>,
 }
 
 #[derive(Default)]
@@ -1483,8 +1448,7 @@ impl<'x> WEBLexer<'x> {
     pub fn new(data: &'x [u8]) -> Self {
         let raw_buf = LexerRawBuf {
             mode: LexMode::LIMBO,
-            data,
-            pos: 0,
+            data: U8SpanRef::new(data),
         };
         let limbo_buf = Some(Default::default());
         let state = LexerInternalState::LimboDirty;
@@ -1538,18 +1502,15 @@ impl<'x> WEBLexer<'x> {
             }
 
             'inner: loop {
-                let (token, control_flow) =
-                    token::lex_token(self.raw_buf.data, self.raw_buf.mode, self.raw_buf.pos)?;
+                let (token, control_flow) = token::lex_token(self.raw_buf.data, self.raw_buf.mode)?;
                 match control_flow {
-                    LexControlFlow::Continue(rest_data, new_pos) => {
+                    LexControlFlow::Continue(rest_data) => {
                         output_tokenlist.push(token);
-                        self.raw_buf.pos = new_pos;
                         self.raw_buf.data = rest_data;
                         continue 'inner;
                     }
-                    LexControlFlow::Finish(rest_data, new_pos) => {
+                    LexControlFlow::Finish(rest_data) => {
                         output_tokenlist.push(token);
-                        self.raw_buf.pos = new_pos;
                         self.raw_buf.data = rest_data;
                         self.state = match self.state {
                             LexerInternalState::LimboDirty => LexerInternalState::LimboFilledEOF,
@@ -1568,10 +1529,8 @@ impl<'x> WEBLexer<'x> {
                         LexControlFlowNewItem::Module,
                         new_mode,
                         rest_data,
-                        new_pos,
                     ) => {
                         self.raw_buf.mode = new_mode;
-                        self.raw_buf.pos = new_pos;
                         self.raw_buf.data = rest_data;
                         let new_module = LexerModuleBuf {
                             module_type: token,
@@ -1602,18 +1561,15 @@ impl<'x> WEBLexer<'x> {
                         LexControlFlowNewItem::Definition,
                         new_mode,
                         rest_data,
-                        new_pos,
                     )
                     | LexControlFlow::StartNew(
                         LexControlFlowNewItem::ProgramText,
                         new_mode,
                         rest_data,
-                        new_pos,
                     ) => {
                         assert!(pending_token.is_none());
                         pending_token = Some(token);
                         self.raw_buf.mode = new_mode;
-                        self.raw_buf.pos = new_pos;
                         self.raw_buf.data = rest_data;
                         continue 'outer;
                     }
