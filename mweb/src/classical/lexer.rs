@@ -580,7 +580,7 @@ pub mod punctuation {
         WithType,
         ArgumentSeparator,
         EndOfStatement,
-        EndOfLastStatement,
+        DotOrEndOfProgram,
         DefineAs,
         Dollar,
         Backslash, /*xetex.web:24446*/
@@ -658,7 +658,7 @@ pub mod punctuation {
         },
         PunctuationInfo {
             literal: b".",
-            kind: Punctuation::EndOfLastStatement,
+            kind: Punctuation::DotOrEndOfProgram,
         },
         PunctuationInfo {
             literal: b"$",
@@ -769,7 +769,7 @@ pub mod token {
         CtrlCode(ControlCode<'x>),
         WS,
         MacroParamMark,
-        Ident(&'x AsciiStr),
+        IdentOrKw(&'x AsciiStr),
         Punct(Punctuation),
         Literal(Literal<'x>),
         Comment(BoxedTokenList<'x>),
@@ -1368,7 +1368,7 @@ pub mod token {
                     let (id, rest) = lex_identifier(l);
                     let id = id.expect("");
                     return Ok((
-                        Token::Ident(ascii_str::from_bytes(id)?),
+                        Token::IdentOrKw(ascii_str::from_bytes(id)?),
                         continue_or_finish(rest),
                     ));
                 } else if first_ch == b'{' {

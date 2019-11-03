@@ -64,7 +64,7 @@ pub(crate) fn parse_definition<'x>(
             let mut token_iter = tokens.into_iter().peekable();
             let _ = token_iter.peeking_next_if_eq(Token::WS);
             let name = match token_iter.next() {
-                Some(Token::Ident(name)) => name,
+                Some(Token::IdentOrKw(name)) => name,
                 _ => {
                     return Err(ParseDefinitionError::InvalidMacro);
                 }
@@ -124,7 +124,7 @@ pub(crate) fn parse_definition<'x>(
             let mut token_iter = tokens.into_iter().peekable();
             let _ = token_iter.peeking_next_if_eq(Token::WS);
             let name = match token_iter.next() {
-                Some(Token::Ident(name)) => name,
+                Some(Token::IdentOrKw(name)) => name,
                 _ => {
                     return Err(ParseDefinitionError::InvalidFormat);
                 }
@@ -135,7 +135,7 @@ pub(crate) fn parse_definition<'x>(
                 .ok_or(ParseDefinitionError::InvalidFormat)?;
             let _ = token_iter.peeking_next_if_eq(Token::WS);
             let target_ident = match token_iter.next() {
-                Some(Token::Ident(ident)) => ident,
+                Some(Token::IdentOrKw(ident)) => ident,
                 _ => {
                     return Err(ParseDefinitionError::InvalidFormat);
                 }
